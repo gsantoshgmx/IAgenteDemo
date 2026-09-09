@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { createWorker } from 'tesseract.js';
+import * as pdfjsLib from 'pdfjs-dist';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -16,6 +18,12 @@ interface ChatMessage {
   role: 'agent' | 'user';
   text: string;
   timestamp: Date;
+}
+
+interface ExtractedDocument {
+  name: string;
+  type: 'pdf' | 'image';
+  text: string;
 }
 
 // ─── Plantilla Markdown por defecto (el "Word" del usuario) ─────────────────
@@ -252,7 +260,12 @@ export default function App() {
   const [processedMarkdown, setProcessedMarkdown] = useState('');
   const [jsonError, setJsonError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [extractedDocument, setExtractedDocument] = useState<ExtractedDocument | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState(0);
+  const [extractionError, setExtractionError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const extractorInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll chat
@@ -330,6 +343,74 @@ export default function App() {
       };
       reader.readAsDataURL(file);
     });
+  };
+
+  const extractPdfText = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer();
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).toString();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    const pages: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      pages.push(content.items.map(item => ('str' in item ? item.str : '')).join(' '));
+      setExtractionProgress(Math.round((pageNumber / pdf.numPages) * 100));
+    }
+
+    return pages.join('\n\n');
+  };
+
+  const extractImageText = async (file: File): Promise<string> => {
+    const worker = await createWorker('spa+eng', 1, {
+      logger: message => {
+        if (message.status === 'recognizing text') setExtractionProgress(Math.round(message.progress * 100));
+      }
+    });
+    const result = await worker.recognize(file);
+    await worker.terminate();
+    return result.data.text.trim();
+  };
+
+  const handleDocumentExtraction = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsExtracting(true);
+    setExtractionProgress(0);
+    setExtractionError('');
+    setExtractedDocument(null);
+
+    try {
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const text = isPdf ? await extractPdfText(file) : await extractImageText(file);
+      if (!text.trim()) throw new Error('No se encontró texto legible en el archivo.');
+      setExtractedDocument({ name: file.name, type: isPdf ? 'pdf' : 'image', text });
+      addUserMessage(`📄 Contenido extraído de ${file.name}`);
+      addAgentMessage('El contenido está listo. Puedes revisarlo, copiarlo o convertirlo a JSON.');
+    } catch (error) {
+      setExtractionError((error as Error).message || 'No fue posible procesar el archivo.');
+    } finally {
+      setIsExtracting(false);
+      if (extractorInputRef.current) extractorInputRef.current.value = '';
+    }
+  };
+
+  const convertExtractedToJson = () => {
+    if (!extractedDocument) return;
+    const lines = extractedDocument.text.split('\n').map(line => line.trim()).filter(Boolean);
+    const fields: Record<string, string> = {};
+    lines.forEach((line, index) => {
+      const match = line.match(/^([^:]{2,40}):\s*(.+)$/i);
+      if (match) fields[match[1].trim().toLowerCase().replace(/\s+/g, '_')] = match[2].trim();
+      else fields[`linea_${index + 1}`] = line;
+    });
+    setJsonInput(JSON.stringify({ documento: { nombre: extractedDocument.name, campos: fields } }, null, 2));
+    addAgentMessage('Convertí el contenido a una estructura JSON editable y la cargué en el siguiente paso.');
+    setStep('json');
   };
 
   const handleContinueToJson = () => {
@@ -601,9 +682,66 @@ export default function App() {
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-800 shrink-0">
                 <h2 className="text-lg font-bold text-gray-100">🖼️ Imágenes</h2>
-                <p className="text-xs text-gray-500">Sube las imágenes que usarás en la plantilla</p>
+                <p className="text-xs text-gray-500">Sube imágenes para la plantilla o extrae contenido de un PDF</p>
               </div>
               <div className="flex-1 overflow-y-auto p-6">
+                <section className="mb-8 rounded-2xl border border-sky-500/20 bg-sky-500/5 p-5">
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div>
+                      <h3 className="font-semibold text-sky-300">📄 Lector de PDF e imágenes</h3>
+                      <p className="text-sm text-gray-400 mt-1">Convierte documentos en texto y JSON editable directamente en tu navegador.</p>
+                    </div>
+                    <span className="text-[10px] uppercase tracking-wider text-sky-400/70 border border-sky-400/20 rounded-full px-2 py-1">OCR local</span>
+                  </div>
+                  <input
+                    ref={extractorInputRef}
+                    type="file"
+                    accept="application/pdf,image/png,image/jpeg,image/webp"
+                    onChange={handleDocumentExtraction}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => extractorInputRef.current?.click()}
+                    disabled={isExtracting}
+                    className="w-full py-3 border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 disabled:opacity-50 rounded-xl text-sm font-medium text-sky-200 transition-all"
+                  >
+                    {isExtracting ? `Procesando documento... ${extractionProgress}%` : 'Seleccionar PDF o imagen'}
+                  </button>
+                  {isExtracting && (
+                    <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mt-3">
+                      <div className="h-full bg-sky-400 transition-all duration-300" style={{ width: `${extractionProgress}%` }} />
+                    </div>
+                  )}
+                  {extractionError && <p className="text-xs text-red-400 mt-3">{extractionError}</p>}
+                  {extractedDocument && !isExtracting && (
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-center justify-between text-xs text-gray-400">
+                        <span>{extractedDocument.type === 'pdf' ? 'PDF' : 'Imagen'}: {extractedDocument.name}</span>
+                        <span>{extractedDocument.text.length.toLocaleString('es-MX')} caracteres</span>
+                      </div>
+                      <textarea
+                        value={extractedDocument.text}
+                        onChange={(event) => setExtractedDocument({ ...extractedDocument, text: event.target.value })}
+                        className="w-full min-h-[180px] bg-gray-950/80 border border-gray-700 rounded-xl p-3 text-sm text-gray-200 resize-y focus:outline-none focus:border-sky-500/60"
+                        placeholder="El texto extraído aparecerá aquí..."
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => navigator.clipboard?.writeText(extractedDocument.text)}
+                          className="px-3 py-2 bg-gray-800 border border-gray-700 hover:bg-gray-700 rounded-lg text-xs text-gray-300 transition-all"
+                        >
+                          Copiar texto
+                        </button>
+                        <button
+                          onClick={convertExtractedToJson}
+                          className="px-3 py-2 bg-sky-600/20 border border-sky-500/30 hover:bg-sky-600/30 rounded-lg text-xs text-sky-300 transition-all"
+                        >
+                          Convertir a JSON y continuar →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </section>
                 {images.length === 0 ? (
                   <div 
                     onClick={() => fileInputRef.current?.click()}
