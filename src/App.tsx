@@ -264,6 +264,7 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState(0);
   const [extractionError, setExtractionError] = useState('');
+  const [pdfError, setPdfError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const extractorInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -450,42 +451,57 @@ export default function App() {
     }
   };
 
-  const handleAuthorizePDF = () => {
+  const handleAuthorizePDF = async () => {
     addUserMessage('✅ Autorizo la generación del PDF');
+    setPdfError('');
     addAgentMessage(
       '¡Perfecto! Generando tu PDF... 📑\n\n' +
       'Tu cotización ha sido procesada exitosamente.\n' +
       'El PDF está listo para descarga.'
     );
     setStep('confirm');
-    
-    setTimeout(() => {
-      generatePDF();
-    }, 500);
+
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    await generatePDF();
   };
 
   const generatePDF = async () => {
-    const html2pdfModule = await import('html2pdf.js');
-    const html2pdf = html2pdfModule.default;
-    const element = document.getElementById('pdf-content');
-    if (!element) return;
+    try {
+      const html2pdfModule = await import('html2pdf.js');
+      const html2pdf = html2pdfModule.default || html2pdfModule;
+      const element = document.getElementById('pdf-content');
+      if (!element) throw new Error('No se encontró el contenido del documento.');
 
-    const opt = {
-      margin: [10, 10, 10, 10],
-      filename: `cotizacion_${Date.now()}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
-    };
+      await document.fonts?.ready;
+      await Promise.all(Array.from(element.querySelectorAll('img')).map(image => {
+        if (image.complete) return Promise.resolve();
+        return new Promise<void>(resolve => {
+          image.addEventListener('load', () => resolve(), { once: true });
+          image.addEventListener('error', () => resolve(), { once: true });
+        });
+      }));
 
-    await (html2pdf() as any).setOptions(opt).from(element).save();
-    
-    setStep('done');
-    addAgentMessage(
-      '✅ **¡PDF generado y descargado!**\n\n' +
-      'Tu cotización ha sido exportada exitosamente.\n\n' +
-      '¿Deseas generar otra cotización? Puedes reiniciar el proceso.'
-    );
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `cotizacion_${Date.now()}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
+      };
+
+      await (html2pdf as any)().set(opt).from(element).save();
+      setStep('done');
+      addAgentMessage(
+        '✅ **¡PDF generado y descargado!**\n\n' +
+        'Tu cotización ha sido exportada exitosamente.\n\n' +
+        '¿Deseas generar otra cotización? Puedes reiniciar el proceso.'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido al generar el PDF.';
+      setPdfError(message);
+      setStep('preview');
+      addAgentMessage(`❌ No pude generar el PDF: ${message}`);
+    }
   };
 
   const handleReset = () => {
@@ -658,7 +674,13 @@ export default function App() {
                     Preview en vivo
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 markdown-preview">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      urlTransform={(url) => url}
+                      components={{
+                        img: ({ src, alt }) => <img src={src} alt={alt || ''} />
+                      }}
+                    >
                       {template}
                     </ReactMarkdown>
                   </div>
@@ -888,13 +910,27 @@ export default function App() {
                   </div>
                 )}
               </div>
+              {pdfError && (
+                <div className="mx-6 mt-4 flex items-center justify-between gap-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                  <span>⚠️ No se pudo descargar el PDF: {pdfError}</span>
+                  <button onClick={handleAuthorizePDF} className="shrink-0 rounded-lg border border-red-400/30 px-3 py-1.5 text-xs hover:bg-red-500/20 transition-all">
+                    Reintentar
+                  </button>
+                </div>
+              )}
               <div className="flex-1 overflow-y-auto bg-gray-800/30 p-8 flex justify-center">
                 <div className="w-full max-w-[800px]">
                   <div 
                     id="pdf-content"
                     className="bg-white text-gray-900 rounded-lg shadow-2xl p-12 markdown-preview-pdf"
                   >
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      urlTransform={(url) => url}
+                      components={{
+                        img: ({ src, alt }) => <img src={src} alt={alt || ''} />
+                      }}
+                    >
                       {processedMarkdown}
                     </ReactMarkdown>
                   </div>
