@@ -1,0 +1,23 @@
+{
+  "diseño": "minimalista",
+  "colores": {
+    "primario": "#2563EB",
+    "secundario": "#93C5FD",
+    "acento": "#1D4ED8",
+    "oscuro": "#14213D",
+    "fondo": "#FFFFFF",
+    "superficie": "#FFFFFF",
+    "texto": "#14213D",
+    "textoSuave": "#4D5B76",
+    "textoClaro": "#DBEAFE",
+    "borde": "#CBD5E1",
+    "alterno": "#EEF4FF"
+  },
+  "fuentes": {
+    "titulos": "Verdana",
+    "texto": "Verdana"
+  },
+  "etiqueta": "Presentación institucional",
+  "pie": "",
+  "logo": ""
+}
