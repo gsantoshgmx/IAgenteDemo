@@ -215,10 +215,10 @@ function MarketingWorkspace({
           </div>
         </div>
         <nav className="flex flex-wrap items-center justify-end gap-2" aria-label="Secciones">
-          <button onClick={() => onNavigate('cotizaciones')} className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:border-gray-500 text-sm">Cotizaciones</button>
+          {/* <button onClick={() => onNavigate('cotizaciones')} className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:border-gray-500 text-sm">Cotizaciones</button> */}
           <button className="px-3 py-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-sm" aria-current="page">Mercadotecnia</button>
-          <button onClick={() => onNavigate('muamba')} className="px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 text-sm">Muamba · Anexos</button>
-          <button onClick={() => { setPresentationError(''); setPresentationOpen(true); }} className="px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 text-sm">Crear PowerPoint</button>
+          {/* <button onClick={() => onNavigate('muamba')} className="px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 text-sm">Muamba · Anexos</button>
+          <button onClick={() => { setPresentationError(''); setPresentationOpen(true); }} className="px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 text-sm">Crear PowerPoint</button> */}
           <button onClick={onConfigureClaude} className="ml-1 px-3 py-2 rounded-lg border border-gray-700 hover:border-emerald-500/50 text-sm">Claude {claudeConfigured ? '· Conectado' : '· Configurar'}</button>
         </nav>
       </header>
@@ -720,7 +720,7 @@ function processTemplate(
 // ─── Componente Principal ───────────────────────────────────────────────────
 
 export default function App() {
-  const [view, setView] = useState<AppView>('cotizaciones');
+  const [view, setView] = useState<AppView>('mercadotecnia');
   const [claudeSettingsOpen, setClaudeSettingsOpen] = useState(false);
   const [settingsReturnView, setSettingsReturnView] = useState<AppView>('cotizaciones');
   const [claudeConfigured, setClaudeConfigured] = useState(false);
