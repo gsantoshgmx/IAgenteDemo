@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/claude/[action].js": {
+      "includeFiles": "agentes/**",
+      "maxDuration": 60
+    }
+  }
+}

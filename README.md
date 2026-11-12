@@ -8,7 +8,17 @@ Agente de Extracción y Generación de Informes
 3. Ingresa una API key creada en la cuenta de Anthropic que quieres usar y selecciona el modelo.
 4. Guarda la configuración y escribe en el chat de la izquierda.
 
-La API key se conserva en memoria dentro del proceso local de Vite; no se guarda en el navegador ni en un archivo, y se elimina al reiniciar el servidor. El consumo se factura a la cuenta de Anthropic asociada a la key. Esta implementación es para desarrollo local: `vite preview` no incluye el backend ni sus rutas de Claude. Para desplegarla, se deben alojar esas rutas en un backend protegido y con almacenamiento de secretos adecuado.
+En desarrollo local, la API key se conserva en la memoria del servidor Vite y se elimina al reiniciarlo. El consumo se factura a la cuenta de Anthropic asociada a la key. `vite preview` no incluye el backend de Claude.
+
+## Despliegue en Vercel
+
+En **Settings > Environment Variables** del proyecto de Vercel, configura estas variables para el entorno que vas a publicar:
+
+- `ANTHROPIC_API_KEY`: la API key de la cuenta de Anthropic, sin prefijo `VITE_`.
+- `CLAUDE_ACCESS_TOKEN`: una contraseña larga, aleatoria y distinta de la API key. Protege las rutas de Claude frente a uso no autorizado.
+- `ANTHROPIC_MODEL` (opcional): identificador del modelo. Por defecto es `claude-sonnet-4-5`.
+
+Después de agregar o modificar las variables, vuelve a desplegar la aplicación. En **Claude · Configurar**, introduce el valor de `CLAUDE_ACCESS_TOKEN`, no la API key de Anthropic. El token permanece sólo en memoria del navegador hasta recargar o desconectar; no compartas este token públicamente. La clave de Anthropic permanece en el servidor. Las funciones de Vercel usan los documentos y el estilo incluidos en el despliegue; los cambios a esos archivos requieren un nuevo despliegue.
 
 ## Agentes
 
@@ -16,7 +26,7 @@ La API key se conserva en memoria dentro del proceso local de Vite; no se guarda
 - **Agente de Mercadotecnia** ofrece una conversación separada para estrategia, campañas y contenido. Usa la misma cuenta y modelo Claude configurados, pero un prompt especializado; cada sección mantiene su propio hilo mientras está abierta. Desde el mismo chat se le puede pedir una presentación ("crea un PowerPoint con esta estrategia") o cambios a una existente ("agrega una diapositiva de presupuesto"). La presentación aparece en la conversación como una tarjeta con miniatura; al abrirla se muestra un panel lateral con la vista previa de cada diapositiva, miniaturas, notas del presentador y el botón para descargar el `.pptx` (16:9). El botón **Crear PowerPoint** sigue disponible como formulario rápido y su resultado también se agrega al chat.
 - **Muamba · Anexos** permite seleccionar proyectos y enviar documentos a la API de Muamba.
 
-La generación del PowerPoint requiere una API key configurada en el panel de Claude. El contenido se genera en el backend local y `pptxgenjs` compone el archivo en el navegador; no se necesita instalar PowerPoint.
+La generación del PowerPoint requiere configurar Claude. El contenido se genera en el backend y `pptxgenjs` compone el archivo en el navegador; no se necesita instalar PowerPoint.
 
 ## Documentos de referencia del Agente de Mercadotecnia
 

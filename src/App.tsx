@@ -49,6 +49,18 @@ interface MuambaAttachment {
 
 type AppView = 'cotizaciones' | 'mercadotecnia' | 'muamba';
 
+let claudeAccessToken = '';
+
+async function fetchClaude(path: string, options: RequestInit = {}) {
+  const headers = new Headers(options.headers);
+  if (claudeAccessToken) headers.set('X-Claude-Access-Token', claudeAccessToken);
+  const response = await fetch(path, { ...options, headers });
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error(`La API de Claude no está disponible (HTTP ${response.status}). Verifica el despliegue en Vercel.`);
+  }
+  return response;
+}
+
 function MarketingWorkspace({
   onNavigate,
   claudeConfigured,
@@ -126,7 +138,7 @@ function MarketingWorkspace({
     while (conversation[0]?.role === 'assistant') conversation.shift();
 
     try {
-      const response = await fetch('/api/claude/chat', {
+      const response = await fetchClaude('/api/claude/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agent: 'marketing', messages: conversation }),
@@ -147,7 +159,7 @@ function MarketingWorkspace({
     setIsGeneratingPresentation(true);
     setPresentationError('');
     try {
-      const response = await fetch('/api/claude/presentation', {
+      const response = await fetchClaude('/api/claude/presentation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -712,6 +724,7 @@ export default function App() {
   const [claudeSettingsOpen, setClaudeSettingsOpen] = useState(false);
   const [settingsReturnView, setSettingsReturnView] = useState<AppView>('cotizaciones');
   const [claudeConfigured, setClaudeConfigured] = useState(false);
+  const [claudeMode, setClaudeMode] = useState<'local' | 'vercel' | 'unknown'>('unknown');
   const [claudeApiKey, setClaudeApiKey] = useState('');
   const [claudeModel, setClaudeModel] = useState('claude-sonnet-4-5');
   const [claudeError, setClaudeError] = useState('');
@@ -741,13 +754,14 @@ export default function App() {
   }, [messages]);
 
   useEffect(() => {
-    fetch('/api/claude/settings')
+    fetchClaude('/api/claude/settings')
       .then(response => response.json())
       .then(settings => {
+        setClaudeMode(settings.mode === 'vercel' ? 'vercel' : 'local');
         setClaudeConfigured(Boolean(settings.configured));
         if (settings.model) setClaudeModel(settings.model);
       })
-      .catch(() => setClaudeConfigured(false));
+      .catch(error => { setClaudeConfigured(false); setClaudeError(error.message); });
   }, []);
 
   // Agregar mensaje del agente
@@ -774,18 +788,24 @@ export default function App() {
   const saveClaudeSettings = async () => {
     setClaudeError('');
     try {
-      const response = await fetch('/api/claude/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: claudeApiKey, model: claudeModel }),
-      });
+      if (claudeMode === 'vercel') claudeAccessToken = claudeApiKey.trim();
+      const response = claudeMode === 'vercel'
+        ? await fetchClaude('/api/claude/settings')
+        : await fetchClaude('/api/claude/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey: claudeApiKey, model: claudeModel }),
+          });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'No se pudo guardar la configuración.');
+      if (!result.configured) throw new Error('Token incorrecto o falta ANTHROPIC_API_KEY en Vercel.');
+      if (result.model) setClaudeModel(result.model);
       setClaudeConfigured(true);
       setClaudeApiKey('');
       setClaudeSettingsOpen(false);
       setView(settingsReturnView);
     } catch (error) {
+      if (claudeMode === 'vercel') claudeAccessToken = '';
       setClaudeError((error as Error).message);
     }
   };
@@ -793,8 +813,11 @@ export default function App() {
   const clearClaudeSettings = async () => {
     setClaudeError('');
     try {
-      const response = await fetch('/api/claude/settings', { method: 'DELETE' });
-      if (!response.ok) throw new Error('No se pudo borrar la configuración.');
+      if (claudeMode === 'vercel') claudeAccessToken = '';
+      else {
+        const response = await fetchClaude('/api/claude/settings', { method: 'DELETE' });
+        if (!response.ok) throw new Error('No se pudo borrar la configuración.');
+      }
       setClaudeConfigured(false);
       setClaudeApiKey('');
     } catch (error) {
@@ -820,7 +843,7 @@ export default function App() {
     });
 
     try {
-      const response = await fetch('/api/claude/chat', {
+      const response = await fetchClaude('/api/claude/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: conversation }),
@@ -1563,30 +1586,30 @@ export default function App() {
               </div>
               <button onClick={closeClaudeSettings} aria-label="Cerrar configuración" className="text-gray-400 hover:text-white">✕</button>
             </div>
-            <label className="block text-sm text-gray-300 mb-4">API key de Anthropic
+            <label className="block text-sm text-gray-300 mb-4">{claudeMode === 'vercel' ? 'Token de acceso' : 'API key de Anthropic'}
               <input
                 type="password"
                 autoComplete="new-password"
                 value={claudeApiKey}
                 onChange={event => setClaudeApiKey(event.target.value)}
-                placeholder={claudeConfigured ? 'Configurada; escribe otra para reemplazarla' : 'sk-ant-...'}
+                placeholder={claudeMode === 'vercel' ? 'CLAUDE_ACCESS_TOKEN' : claudeConfigured ? 'Configurada; escribe otra para reemplazarla' : 'sk-ant-...'}
                 className="mt-2 w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 font-mono text-sm focus:outline-none focus:border-emerald-500"
               />
             </label>
-            <label className="block text-sm text-gray-300">Modelo
+            {claudeMode !== 'vercel' && <label className="block text-sm text-gray-300">Modelo
               <select value={claudeModel} onChange={event => setClaudeModel(event.target.value)} className="mt-2 w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-500">
                 <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
                 <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
                 <option value="claude-opus-4-1">Claude Opus 4.1</option>
               </select>
-            </label>
-            <p className="mt-4 text-xs leading-relaxed text-gray-500">La API key se conserva sólo en la memoria del backend local y se borra al reiniciar el servidor. El uso de API se factura en la cuenta de Anthropic asociada a esa key.</p>
+            </label>}
+            <p className="mt-4 text-xs leading-relaxed text-gray-500">{claudeMode === 'vercel' ? 'Configura ANTHROPIC_API_KEY y CLAUDE_ACCESS_TOKEN en las variables de entorno de Vercel. Introduce aquí el token de acceso; se conserva sólo durante esta sesión.' : 'La API key se conserva sólo en la memoria del backend local y se borra al reiniciar el servidor. El uso de API se factura en la cuenta de Anthropic asociada a esa key.'}</p>
             {claudeError && <p className="mt-3 text-sm text-rose-300">{claudeError}</p>}
             <div className="mt-6 flex justify-between gap-3">
               {claudeConfigured && <button onClick={() => void clearClaudeSettings()} className="px-3 py-2 text-sm text-rose-300 hover:text-rose-200">Desconectar</button>}
               <div className="ml-auto flex gap-2">
                 <button onClick={closeClaudeSettings} className="px-3 py-2 rounded-lg border border-gray-700 text-sm hover:bg-gray-800">Cancelar</button>
-                <button onClick={() => void saveClaudeSettings()} disabled={!claudeApiKey.trim()} className="px-4 py-2 rounded-lg bg-emerald-600 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40">Guardar API key</button>
+                <button onClick={() => void saveClaudeSettings()} disabled={!claudeApiKey.trim()} className="px-4 py-2 rounded-lg bg-emerald-600 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40">{claudeMode === 'vercel' ? 'Conectar' : 'Guardar API key'}</button>
               </div>
             </div>
           </section>
